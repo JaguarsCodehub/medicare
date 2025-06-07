@@ -1,0 +1,128 @@
+---
+description: For building our Medicare App (MVP)
+globs: 
+---
+# 📘 RULES.md – Medicare App (MVP)
+
+This file defines the rules and best practices Cursor should follow while generating the code for the Medicare Reminder App. The MVP version includes only the core P0 features — no push notifications or scheduling logic beyond local storage and backend interactions.
+
+---
+
+## 🚀 Tech Stack Overview
+
+### Frontend:
+- **React Native** using **Expo**
+- **Expo Router** for navigation
+- **TypeScript** for all components and logic
+
+### Backend:
+- **Node.js** with **Express**
+- RESTful API
+
+### Authentication & Database:
+- **Supabase** for:
+  - Authentication (email/password only)
+  - PostgreSQL database
+- **Prisma ORM** for schema management and data querying
+
+---
+
+## 📐 Project Structure (Best Practices)
+/
+├── app/ # Screens routed with Expo Router
+│ ├── (auth)/ # Sign up / Login screens
+│ ├── (patient)/ # Patient dashboard, medication list
+│ ├── (caregiver)/ # Caregiver dashboard, add/edit meds
+├── components/ # Reusable UI components
+├── lib/ # Supabase client, utilities
+├── services/ # API functions for frontend/backend
+├── backend/ # Node.js + Express backend
+│ ├── routes/ # REST API routes
+│ ├── controllers/ # Business logic
+│ ├── prisma/ # Prisma schema and client
+│ ├── utils/ # Helper functions
+
+
+---
+
+## ✅ Cursor Generation Rules
+
+### UI & UX:
+- Build **simple, modern, clean, and accessible UIs**.
+- Use **Form components** with validation for medication inputs.
+- Maintain **clear user roles** (Patient vs. Caregiver) across screens.
+
+### Code Style:
+- Use **TypeScript** everywhere.
+- Follow **PascalCase for Components**, **camelCase for variables**.
+- Write **reusable hooks** for Supabase API calls.
+- Always **fetch API keys and endpoints from `.env`**.
+
+### API Design:
+- Use **REST API** for backend routes.
+- Create **separate endpoints** for Patients and Caregivers.
+- Structure backend by `routes/`, `controllers/`, `services/`.
+
+### Authentication:
+- Use **Supabase Auth** (email/password) for login/signup.
+- Store session securely via Supabase client.
+
+### Data Flow:
+- Caregivers can:
+  - Add medications for patients.
+  - View current schedules.
+- Patients can:
+  - View medications for the day.
+  - Mark as taken/skipped.
+
+---
+
+## 📦 MVP (P0) Feature Scope
+
+### Users:
+- Signup/Login with Supabase (Patients and Caregivers)
+- Profile page with role switch
+
+### Medications:
+- Caregiver:
+  - Add medication name, dosage, frequency, start date, notes
+  - View medications assigned to patients
+- Patient:
+  - View list of today's medications
+  - Mark medication as taken or skipped
+
+### Dashboard:
+- Caregiver: List of assigned patients + medications
+- Patient: Medication checklist for today
+
+---
+
+## 🚫 Out of Scope (For MVP)
+- Push/local notifications
+- Calendar or time-based alerts
+- Multi-language support
+- Role-based permissions beyond Patient/Caregiver
+- Third-party API integrations
+
+---
+
+## 📎 Security Notes
+- Never expose Supabase service role keys on frontend.
+- Protect patient data using **Row-Level Security (RLS)** in Supabase (suggested).
+- Sanitize all backend inputs.
+
+---
+
+## 🧪 Testing
+- Create test patients and medications using Supabase dashboard.
+- Test each REST endpoint using Postman or Thunder Client.
+
+---
+
+## 🧰 Additional Notes
+- Prisma schema should be written in `/backend/prisma/schema.prisma`
+- Use `dotenv` to load environment variables for both backend and frontend
+- Supabase project URL and anon key should be pulled from `.env`
+
+
+
