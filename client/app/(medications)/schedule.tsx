@@ -1,13 +1,15 @@
 // app/medications/schedule.tsx
 
 import React, { useEffect, useState } from 'react';
-import { View, Text, Button, ScrollView, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
+import { View, Text, Button, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, ActivityIndicator, Dimensions } from 'react-native';
 import { api } from '../../lib/api';
 import { getUserEmail } from '@/lib/tokenStorage';
 import { Text as ThemedText, View as ThemedView } from '@/components/Themed';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Stack } from 'expo-router';
 
 type Medication = {
   id: string;
@@ -22,14 +24,36 @@ type Medication = {
   }[];
 };
 
+type TimeStatus = {
+  time: string;
+  status: 'TAKEN' | 'MISSED' | 'PENDING';
+};
+
+type MedicationScheduleItem = {
+  medicationId: string;
+  name: string;
+  dosage: string;
+  times: TimeStatus[];
+};
+
+type ActivityData = {
+  date: string;
+  status: 'TAKEN' | 'MISSED' | 'PENDING';
+  totalMedications: number;
+  takenCount: number;
+  missedCount: number;
+};
+
 export default function MedicationScheduleScreen() {
-  const [medications, setMedications] = useState<Medication[]>([]);
+  const [schedule, setSchedule] = useState<MedicationScheduleItem[]>([]);
+  const [activityData, setActivityData] = useState<ActivityData[]>([]);
   const [message, setMessage] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<{[key: string]: boolean}>({});
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
 
-  const fetchMedications = async () => {
+  const fetchActivityData = async () => {
     try {
       const email = await getUserEmail();
       if (!email) {
@@ -37,75 +61,172 @@ export default function MedicationScheduleScreen() {
         return;
       }
 
-      const res = await api.get('/medications', {
-        params: { email }
+      const res = await api.get('/medications/activity', {
+        params: { email },
       });
-      setMedications(res.data);
+      console.log('Received activity data:', res.data);
+      setActivityData(res.data);
     } catch (err: any) {
-      console.error("Medications Schedule", err.message);
-      setMessage('Error fetching medications');
+      console.error('Error fetching activity data:', err);
+      setMessage(err.response?.data?.error || 'Error fetching activity data');
+    }
+  };
+
+  const fetchSchedule = async () => {
+    try {
+      const email = await getUserEmail();
+      if (!email) {
+        setMessage('Please login again');
+        return;
+      }
+
+      const res = await api.get('/medications/schedule', {
+        params: { email },
+      });
+      console.log('Received schedule data:', res.data);
+      setSchedule(res.data);
+      setMessage('');
+    } catch (err: any) {
+      console.error('Error fetching schedule:', err);
+      setMessage(err.response?.data?.error || 'Error fetching schedule');
     }
   };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchMedications();
+    await Promise.all([fetchSchedule(), fetchActivityData()]);
     setRefreshing(false);
   };
 
   useEffect(() => {
-    fetchMedications();
+    fetchSchedule();
+    fetchActivityData();
   }, []);
-
-  const isTimeTaken = (
-    takenLog: Medication['takenLog'],
-    time: string
-  ): 'TAKEN' | 'MISSED' | null => {
-    const today = new Date().toISOString().split('T')[0];
-    for (const log of takenLog) {
-      if (
-        log.timestamp.startsWith(today) &&
-        log.timestamp.includes(`${time}:00`)
-      ) {
-        return log.status;
-      }
-    }
-    return null;
-  };
 
   const handleMark = async (
     medicationId: string,
     time: string,
     status: 'TAKEN' | 'MISSED'
   ) => {
+    const key = `${medicationId}-${time}`;
     try {
+      setProcessingStatus(prev => ({ ...prev, [key]: true }));
       const email = await getUserEmail();
       if (!email) {
         setMessage('Please login again');
         return;
       }
 
-      await api.post(`/medications/${medicationId}/taken-log`, {
+      console.log('Marking medication:', { medicationId, time, status });
+      const response = await api.post(`/medications/${medicationId}/taken-log`, {
         time,
         status,
         email
       });
+      console.log('Mark response:', response.data);
+
+      // Update the schedule with the new data
+      setSchedule(prevSchedule => {
+        const newSchedule = prevSchedule.map(med => {
+          if (med.medicationId === medicationId) {
+            return {
+              ...med,
+              times: med.times.map(timeSlot => {
+                if (timeSlot.time === time) {
+                  return {
+                    ...timeSlot,
+                    status: status
+                  };
+                }
+                return timeSlot;
+              })
+            };
+          }
+          return med;
+        });
+        console.log('Updated schedule:', newSchedule);
+        return newSchedule;
+      });
+
       setMessage(`Marked ${status} for ${time}`);
-      await fetchMedications();
     } catch (err: any) {
+      console.error('Error marking medication:', err);
       setMessage(err.response?.data?.error || 'Error marking');
+      // Revert optimistic update on error
+      await fetchSchedule();
+    } finally {
+      setProcessingStatus(prev => ({ ...prev, [key]: false }));
     }
   };
 
-  const getStatusColor = (status: 'TAKEN' | 'MISSED' | null) => {
+  const getStatusColor = (status: 'TAKEN' | 'MISSED' | 'PENDING') => {
     switch (status) {
       case 'TAKEN':
-        return '#00c267';
+        return '#10B981'; // Emerald
       case 'MISSED':
-        return '#C62828';
+        return '#EF4444'; // Red
+      case 'PENDING':
+        return '#6B7280'; // Gray
       default:
-        return '#546E7A';
+        return '#6B7280';
     }
+  };
+
+  const getStatusIcon = (status: 'TAKEN' | 'MISSED' | 'PENDING') => {
+    switch (status) {
+      case 'TAKEN':
+        return 'checkmark-circle';
+      case 'MISSED':
+        return 'close-circle';
+      case 'PENDING':
+        return 'time';
+      default:
+        return 'time';
+    }
+  };
+
+  const renderActivityGraph = () => {
+    if (activityData.length === 0) {
+      return null;
+    }
+
+    return (
+      <View style={styles.activityGraphContainer}>
+        <View style={styles.activityGraphHeader}>
+          <Text style={styles.activityGraphTitle}>Weekly Activity</Text>
+          <View style={styles.activityGraphLegend}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
+              <Text style={styles.legendText}>Taken</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
+              <Text style={styles.legendText}>Missed</Text>
+            </View>
+          </View>
+        </View>
+        <View style={styles.activityGraph}>
+          {activityData.map((day, index) => (
+            <View key={index} style={styles.activityDay}>
+              <View style={styles.activitySquareContainer}>
+                <View 
+                  style={[
+                    styles.activitySquare,
+                    { backgroundColor: getStatusColor(day.status) }
+                  ]} 
+                />
+                <Text style={styles.activityCount}>
+                  {day.takenCount}/{day.totalMedications}
+                </Text>
+              </View>
+              <Text style={styles.activityDayText}>
+                {new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' })}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
   };
 
   return (
@@ -115,102 +236,127 @@ export default function MedicationScheduleScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
-      <ThemedView style={styles.header}>
+    <Stack.Screen options={{headerShown: false}}/>
+      <LinearGradient
+        colors={['#4F46E5', '#7C3AED']}
+        style={styles.header}
+      >
         <View style={styles.headerContent}>
-          <MaterialIcons name="schedule" size={32} color="#FFFFFF" style={styles.headerIcon} />
-          <View>
-            <ThemedText style={styles.title}>Today's Schedule</ThemedText>
-            <ThemedText style={styles.subtitle}>
-              {medications.length} medications scheduled
-            </ThemedText>
+          <View style={styles.headerTextContainer}>
+            <Text style={styles.title}>Today's Schedule</Text>
+            <Text style={styles.subtitle}>
+              {schedule.length} medications scheduled
+            </Text>
+          </View>
+          <View style={styles.headerIconContainer}>
+            <Ionicons name="calendar" size={32} color="#FFFFFF" />
           </View>
         </View>
-      </ThemedView>
+      </LinearGradient>
 
-      {medications.map((med) => (
-        <ThemedView key={med.id} style={styles.medicationCard}>
+      {renderActivityGraph()}
+
+      {schedule.map((med) => (
+        <View key={med.medicationId} style={styles.medicationCard}>
           <View style={styles.medicationHeader}>
             <View style={styles.medicationTitleContainer}>
-              <MaterialIcons name="medication" size={24} color="#2C3E50" style={styles.medicationIcon} />
-              <ThemedText style={styles.medicationName}>{med.name}</ThemedText>
+              <View style={styles.medicationIconContainer}>
+                <Ionicons name="medkit" size={24} color="#4F46E5" />
+              </View>
+              <View>
+                <Text style={styles.medicationName}>{med.name}</Text>
+                <Text style={styles.dosageText}>{med.dosage}</Text>
+              </View>
             </View>
-            <View style={styles.dosageBadge}>
-              <MaterialIcons name="fiber-manual-record" size={8} color="#1976D2" style={styles.dosageIcon} />
-              <ThemedText style={styles.dosageText}>{med.dosage}</ThemedText>
-            </View>
-          </View>
-
-          <View style={styles.frequencyContainer}>
-            <MaterialIcons name="repeat" size={16} color="#7F8C8D" style={styles.frequencyIcon} />
-            <ThemedText style={styles.frequencyText}>{med.frequency}</ThemedText>
           </View>
 
           <View style={styles.timesContainer}>
-            {med.times.map((time) => {
-              const status = isTimeTaken(med.takenLog, time);
+            {med.times.map((timeSlot) => {
+              const key = `${med.medicationId}-${timeSlot.time}`;
+              const isProcessing = processingStatus[key];
+
               return (
-                <View key={time} style={styles.timeSlot}>
+                <View key={timeSlot.time} style={styles.timeSlot}>
                   <View style={styles.timeHeader}>
                     <View style={styles.timeInfo}>
-                      <MaterialIcons name="access-time" size={16} color="#2C3E50" style={styles.timeIcon} />
-                      <ThemedText style={styles.timeText}>{time}</ThemedText>
+                      <Ionicons name="time" size={16} color="#4B5563" />
+                      <Text style={styles.timeText}>{timeSlot.time}</Text>
                     </View>
-                    <View style={[styles.statusIndicator, { backgroundColor: getStatusColor(status) }]} />
+                    <View style={[styles.statusIndicator, { backgroundColor: getStatusColor(timeSlot.status) }]} />
                   </View>
 
-                  {status === null && (
+                  {timeSlot.status === 'PENDING' ? (
                     <View style={styles.actionButtons}>
                       <TouchableOpacity
-                        style={[styles.actionButton, styles.takenButton]}
-                        onPress={() => handleMark(med.id, time, 'TAKEN')}
+                        style={[
+                          styles.actionButton, 
+                          styles.takenButton,
+                          isProcessing && styles.disabledButton
+                        ]}
+                        onPress={() => handleMark(med.medicationId, timeSlot.time, 'TAKEN')}
+                        disabled={isProcessing}
                       >
-                        <MaterialIcons name="check-circle" size={20} color="#FFFFFF" style={styles.buttonIcon} />
-                        <ThemedText style={styles.actionButtonText}>Taken</ThemedText>
+                        {isProcessing ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                            <Text style={styles.actionButtonText}>Taken</Text>
+                          </>
+                        )}
                       </TouchableOpacity>
                       <TouchableOpacity
-                        style={[styles.actionButton, styles.missedButton]}
-                        onPress={() => handleMark(med.id, time, 'MISSED')}
+                        style={[
+                          styles.actionButton, 
+                          styles.missedButton,
+                          isProcessing && styles.disabledButton
+                        ]}
+                        onPress={() => handleMark(med.medicationId, timeSlot.time, 'MISSED')}
+                        disabled={isProcessing}
                       >
-                        <MaterialIcons name="cancel" size={20} color="#FFFFFF" style={styles.buttonIcon} />
-                        <ThemedText style={styles.actionButtonText}>Missed</ThemedText>
+                        {isProcessing ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Ionicons name="close-circle" size={20} color="#FFFFFF" />
+                            <Text style={styles.actionButtonText}>Missed</Text>
+                          </>
+                        )}
                       </TouchableOpacity>
                     </View>
-                  )}
-
-                  {status && (
+                  ) : (
                     <View style={styles.statusContainer}>
-                      <MaterialIcons 
-                        name={status === 'TAKEN' ? 'check-circle' : 'cancel'} 
+                      <Ionicons 
+                        name={getStatusIcon(timeSlot.status)} 
                         size={20} 
-                        color={getStatusColor(status)} 
-                        style={styles.statusIcon} 
+                        color={getStatusColor(timeSlot.status)} 
                       />
-                      <ThemedText style={[styles.statusText, { color: getStatusColor(status) }]}>
-                        {status === 'TAKEN' ? 'Taken' : 'Missed'}
-                      </ThemedText>
+                      <Text style={[styles.statusText, { color: getStatusColor(timeSlot.status) }]}>
+                        {timeSlot.status}
+                      </Text>
                     </View>
                   )}
                 </View>
               );
             })}
           </View>
-        </ThemedView>
+        </View>
       ))}
 
       {message ? (
-        <ThemedView style={styles.messageContainer}>
-          <MaterialIcons name="info" size={20} color="#E65100" style={styles.messageIcon} />
-          <ThemedText style={styles.message}>{message}</ThemedText>
-        </ThemedView>
+        <View style={styles.messageContainer}>
+          <Ionicons name="information-circle" size={20} color="#F59E0B" />
+          <Text style={styles.message}>{message}</Text>
+        </View>
       ) : null}
 
-      {medications.length === 0 && (
-        <ThemedView style={styles.emptyState}>
-          <MaterialIcons name="event-busy" size={48} color="#7F8C8D" style={styles.emptyStateIcon} />
-          <ThemedText style={styles.emptyStateText}>
+      {schedule.length === 0 && (
+        <View style={styles.emptyState}>
+          <Ionicons name="calendar" size={48} color="#9CA3AF" />
+          <Text style={styles.emptyStateText}>
             No medications scheduled for today
-          </ThemedText>
-        </ThemedView>
+          </Text>
+        </View>
       )}
     </ScrollView>
   );
@@ -219,19 +365,27 @@ export default function MedicationScheduleScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F7FA',
+    backgroundColor: '#F9FAFB',
   },
   header: {
     padding: 20,
     paddingTop: 40,
-    backgroundColor: '#4A90E2',
   },
   headerContent: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  headerIcon: {
-    marginRight: 15,
+  headerTextContainer: {
+    flex: 1,
+  },
+  headerIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   title: {
     fontSize: 28,
@@ -244,73 +398,89 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     opacity: 0.8,
   },
-  medicationCard: {
-    margin: 10,
-    padding: 15,
-    borderRadius: 12,
+  activityGraphContainer: {
+    margin: 16,
+    padding: 16,
     backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  activityGraphTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  activityGraph: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    height: 100,
+  },
+  activityDay: {
+    alignItems: 'center',
+  },
+  activitySquare: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  activityDayText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  medicationCard: {
+    margin: 16,
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   medicationHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 16,
   },
   medicationTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  medicationIcon: {
-    marginRight: 8,
+  medicationIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   medicationName: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2C3E50',
-  },
-  dosageBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E3F2FD',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 15,
-  },
-  dosageIcon: {
-    marginRight: 4,
+    fontWeight: '600',
+    color: '#1F2937',
   },
   dosageText: {
-    color: '#1976D2',
     fontSize: 14,
-    fontWeight: '500',
-  },
-  frequencyContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  frequencyIcon: {
-    marginRight: 6,
-  },
-  frequencyText: {
-    color: '#7F8C8D',
-    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
   },
   timesContainer: {
-    gap: 10,
+    gap: 12,
   },
   timeSlot: {
     borderTopWidth: 1,
-    borderTopColor: '#ECF0F1',
-    paddingTop: 10,
+    borderTopColor: '#F3F4F6',
+    paddingTop: 12,
   },
   timeHeader: {
     flexDirection: 'row',
@@ -321,14 +491,12 @@ const styles = StyleSheet.create({
   timeInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  timeIcon: {
-    marginRight: 6,
+    gap: 6,
   },
   timeText: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#2C3E50',
+    color: '#4B5563',
   },
   statusIndicator: {
     width: 8,
@@ -337,25 +505,25 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   actionButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 10,
+    padding: 12,
     borderRadius: 8,
     gap: 6,
   },
   takenButton: {
-    backgroundColor: '#00875A',
+    backgroundColor: '#10B981',
   },
   missedButton: {
-    backgroundColor: '#C62828',
+    backgroundColor: '#EF4444',
   },
-  buttonIcon: {
-    marginRight: 4,
+  disabledButton: {
+    opacity: 0.7,
   },
   actionButtonText: {
     fontSize: 14,
@@ -367,9 +535,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  statusIcon: {
-    marginRight: 4,
-  },
   statusText: {
     fontSize: 14,
     fontWeight: '500',
@@ -377,30 +542,58 @@ const styles = StyleSheet.create({
   messageContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    margin: 10,
+    margin: 16,
     padding: 12,
     borderRadius: 8,
-    backgroundColor: '#FFF3E0',
-  },
-  messageIcon: {
-    marginRight: 8,
+    backgroundColor: '#FEF3C7',
+    gap: 8,
   },
   message: {
     flex: 1,
-    color: '#E65100',
+    color: '#92400E',
     fontSize: 14,
   },
   emptyState: {
-    padding: 20,
+    padding: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emptyStateIcon: {
-    marginBottom: 12,
-  },
   emptyStateText: {
     fontSize: 16,
-    color: '#7F8C8D',
+    color: '#6B7280',
     textAlign: 'center',
+    marginTop: 12,
+  },
+  activityGraphHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  activityGraphLegend: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  legendText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  activitySquareContainer: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  activityCount: {
+    fontSize: 10,
+    color: '#6B7280',
   },
 });

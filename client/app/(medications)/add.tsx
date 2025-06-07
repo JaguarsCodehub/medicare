@@ -6,6 +6,7 @@ import { Picker } from '@react-native-picker/picker';
 import { api } from '../../lib/api';
 import { getUserEmail } from '@/lib/tokenStorage';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Stack } from 'expo-router';
 
 type MedicationCategory = 'Tablet' | 'Capsule' | 'Syrup';
 
@@ -92,6 +93,7 @@ export default function AddMedicationScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      {/* <Stack.Screen options={{headerShown: false}} /> */}
       <Text style={styles.label}>Medication Name:</Text>
       <TextInput
         value={name}
