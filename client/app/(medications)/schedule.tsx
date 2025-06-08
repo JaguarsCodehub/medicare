@@ -10,6 +10,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack } from 'expo-router';
+import { Calendar } from 'react-native-calendars';
 
 type Medication = {
   id: string;
@@ -50,6 +51,8 @@ export default function MedicationScheduleScreen() {
   const [message, setMessage] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<{[key: string]: boolean}>({});
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isToday, setIsToday] = useState(true);
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
 
@@ -72,7 +75,7 @@ export default function MedicationScheduleScreen() {
     }
   };
 
-  const fetchSchedule = async () => {
+  const fetchSchedule = async (date?: Date) => {
     try {
       const email = await getUserEmail();
       if (!email) {
@@ -80,11 +83,18 @@ export default function MedicationScheduleScreen() {
         return;
       }
 
+      const dateToFetch = date || selectedDate;
+      const dateStr = dateToFetch.toISOString().split('T')[0];
+
       const res = await api.get('/medications/schedule', {
-        params: { email },
+        params: { 
+          email,
+          date: dateStr
+        },
       });
       console.log('Received schedule data:', res.data);
-      setSchedule(res.data);
+      setSchedule(res.data.medications);
+      setIsToday(res.data.isToday);
       setMessage('');
     } catch (err: any) {
       console.error('Error fetching schedule:', err);
@@ -102,6 +112,12 @@ export default function MedicationScheduleScreen() {
     fetchSchedule();
     fetchActivityData();
   }, []);
+
+  const handleDateSelect = (date: any) => {
+    const newDate = new Date(date.timestamp);
+    setSelectedDate(newDate);
+    fetchSchedule(newDate);
+  };
 
   const handleMark = async (
     medicationId: string,
@@ -229,6 +245,29 @@ export default function MedicationScheduleScreen() {
     );
   };
 
+  const renderCalendar = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const selectedDateStr = selectedDate.toISOString().split('T')[0];
+
+    return (
+      <View style={styles.calendarContainer}>
+        <Calendar
+          current={selectedDateStr}
+          onDayPress={handleDateSelect}
+          markedDates={{
+            [selectedDateStr]: { selected: true, selectedColor: '#4F46E5' },
+            [today]: { marked: true, dotColor: '#4F46E5' }
+          }}
+          theme={{
+            todayTextColor: '#4F46E5',
+            selectedDayBackgroundColor: '#4F46E5',
+            arrowColor: '#4F46E5',
+          }}
+        />
+      </View>
+    );
+  };
+
   return (
     <ScrollView 
       style={styles.container}
@@ -236,14 +275,21 @@ export default function MedicationScheduleScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
-    <Stack.Screen options={{headerShown: false}}/>
+      <Stack.Screen options={{headerShown: false}}/>
       <LinearGradient
         colors={['#4F46E5', '#7C3AED']}
         style={styles.header}
       >
         <View style={styles.headerContent}>
           <View style={styles.headerTextContainer}>
-            <Text style={styles.title}>Today's Schedule</Text>
+            <Text style={styles.title}>
+              {isToday ? "Today's Schedule" : selectedDate.toLocaleDateString('en-US', { 
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              })}
+            </Text>
             <Text style={styles.subtitle}>
               {schedule.length} medications scheduled
             </Text>
@@ -254,6 +300,7 @@ export default function MedicationScheduleScreen() {
         </View>
       </LinearGradient>
 
+      {renderCalendar()}
       {renderActivityGraph()}
 
       {schedule.map((med) => (
@@ -285,7 +332,7 @@ export default function MedicationScheduleScreen() {
                     <View style={[styles.statusIndicator, { backgroundColor: getStatusColor(timeSlot.status) }]} />
                   </View>
 
-                  {timeSlot.status === 'PENDING' ? (
+                  {timeSlot.status === 'PENDING' && isToday ? (
                     <View style={styles.actionButtons}>
                       <TouchableOpacity
                         style={[
@@ -354,7 +401,12 @@ export default function MedicationScheduleScreen() {
         <View style={styles.emptyState}>
           <Ionicons name="calendar" size={48} color="#9CA3AF" />
           <Text style={styles.emptyStateText}>
-            No medications scheduled for today
+            No medications scheduled for {isToday ? 'today' : selectedDate.toLocaleDateString('en-US', { 
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            })}
           </Text>
         </View>
       )}
@@ -595,5 +647,16 @@ const styles = StyleSheet.create({
   activityCount: {
     fontSize: 10,
     color: '#6B7280',
+  },
+  calendarContainer: {
+    margin: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    overflow: 'hidden',
   },
 });

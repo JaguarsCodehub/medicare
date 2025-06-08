@@ -19,6 +19,10 @@ export default function AddMedicationScreen() {
   const [message, setMessage] = useState('');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [currentTimeIndex, setCurrentTimeIndex] = useState(0);
+  const [startDate, setStartDate] = useState(new Date());
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
   // Generate numbers 1-9 for tablet/capsule dosage
   const dosageNumbers = Array.from({ length: 9 }, (_, i) => (i + 1).toString());
@@ -50,6 +54,20 @@ export default function AddMedicationScreen() {
     setTimes(newTimes.length ? newTimes : ['']);
   };
 
+  const handleStartDateChange = (event: any, selectedDate?: Date) => {
+    setShowStartDatePicker(false);
+    if (selectedDate) {
+      setStartDate(selectedDate);
+    }
+  };
+
+  const handleEndDateChange = (event: any, selectedDate?: Date) => {
+    setShowEndDatePicker(false);
+    if (selectedDate) {
+      setEndDate(selectedDate);
+    }
+  };
+
   const handleSubmit = async () => {
     try {
       const email = await getUserEmail();
@@ -76,7 +94,9 @@ export default function AddMedicationScreen() {
         dosage: formattedDosage,
         frequency,
         times: validTimes,
-        email
+        email,
+        startDate: startDate.toISOString(),
+        endDate: endDate?.toISOString() || null
       });
 
       setMessage('Medication added successfully!');
@@ -86,6 +106,8 @@ export default function AddMedicationScreen() {
       setDosage('1');
       setFrequency('Once daily');
       setTimes(['']);
+      setStartDate(new Date());
+      setEndDate(null);
     } catch (err: any) {
       setMessage(err.response?.data?.error || 'Error adding medication');
     }
@@ -191,6 +213,44 @@ export default function AddMedicationScreen() {
           is24Hour={true}
           display="default"
           onChange={handleTimeChange}
+        />
+      )}
+
+      <Text style={styles.label}>Start Date:</Text>
+      <TouchableOpacity
+        style={styles.dateButton}
+        onPress={() => setShowStartDatePicker(true)}
+      >
+        <Text style={styles.dateButtonText}>
+          {startDate.toLocaleDateString()}
+        </Text>
+      </TouchableOpacity>
+      {showStartDatePicker && (
+        <DateTimePicker
+          value={startDate}
+          mode="date"
+          display="default"
+          onChange={handleStartDateChange}
+          minimumDate={new Date()}
+        />
+      )}
+
+      <Text style={styles.label}>End Date (Optional):</Text>
+      <TouchableOpacity
+        style={styles.dateButton}
+        onPress={() => setShowEndDatePicker(true)}
+      >
+        <Text style={styles.dateButtonText}>
+          {endDate ? endDate.toLocaleDateString() : 'No end date'}
+        </Text>
+      </TouchableOpacity>
+      {showEndDatePicker && (
+        <DateTimePicker
+          value={endDate || new Date()}
+          mode="date"
+          display="default"
+          onChange={handleEndDateChange}
+          minimumDate={startDate}
         />
       )}
 
@@ -304,5 +364,16 @@ const styles = StyleSheet.create({
     marginTop: 20,
     textAlign: 'center',
     color: '#E74C3C',
+  },
+  dateButton: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  dateButtonText: {
+    fontSize: 16,
+    color: '#1F2937',
   },
 });

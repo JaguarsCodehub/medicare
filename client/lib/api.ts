@@ -2,7 +2,7 @@ import axios from 'axios';
 import { getAccessToken } from './tokenStorage';
 
 export const api = axios.create({
-  baseURL: 'http://192.168.1.9:5000/api', // Your backend URL
+  baseURL: 'http://192.168.1.4:5000/api', // Your backend URL
 });
 
 api.interceptors.request.use(async (config) => {
