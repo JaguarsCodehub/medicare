@@ -23,6 +23,8 @@ model Medication {
   dosage     String
   frequency  String
   times      String[]
+  startDate  DateTime @default(now())
+  endDate    DateTime?
   patientId  String
   takenLog   TakenLog[]
   patient    User     @relation(fields: [patientId], references: [id])

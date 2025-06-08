@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { supabase } from '../utils/db';
 import prisma from '../utils/prisma';
 import { authMiddleware } from '../middleware/authmiddleware';
+import { Medication, TakenLog } from '@prisma/client';
 
 const router = express.Router();
 // router.use(authMiddleware);
@@ -13,7 +14,7 @@ const router = express.Router();
 
 // POST /medications → Add medication
 router.post('/', async (req: Request, res: Response) => {
-  const { name, dosage, frequency, times, email } = req.body;
+  const { name, dosage, frequency, times, email, startDate, endDate } = req.body;
 
   try {
     const user = await prisma.user.findUnique({
@@ -34,6 +35,8 @@ router.post('/', async (req: Request, res: Response) => {
         dosage,
         frequency,
         times,
+        startDate: startDate ? new Date(startDate) : new Date(),
+        endDate: endDate ? new Date(endDate) : null,
         patientId: user.id,
       },
     });
@@ -181,9 +184,10 @@ router.post('/:id/taken-log', async (req: Request, res: Response) => {
   }
 });
 
-// GET /medications/schedule?email=xyz@gmail.com
+// GET /medications/schedule?email=xyz@gmail.com&date=2024-03-20
 router.get('/schedule', async (req: Request, res: Response) => {
   const email = req.query.email as string;
+  const dateStr = req.query.date as string;
 
   if (!email) {
     return res.status(400).json({ error: 'Email is required' });
@@ -198,10 +202,18 @@ router.get('/schedule', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Get medications with today's taken logs
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    // Parse the date or use today's date if not provided
+    const selectedDate = dateStr ? new Date(dateStr) : new Date();
+    const startOfDay = new Date(Date.UTC(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate()
+    ));
+    const endOfDay = new Date(Date.UTC(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate() + 1
+    ));
 
     console.log('Fetching schedule for date range:', {
       startOfDay: startOfDay.toISOString(),
@@ -209,7 +221,16 @@ router.get('/schedule', async (req: Request, res: Response) => {
     });
 
     const medications = await prisma.medication.findMany({
-      where: { patientId: user.id },
+      where: { 
+        patientId: user.id,
+        startDate: {
+          lte: endOfDay
+        },
+        OR: [
+          { endDate: null },
+          { endDate: { gte: startOfDay } }
+        ]
+      },
       include: {
         takenLog: {
           where: {
@@ -229,6 +250,8 @@ router.get('/schedule', async (req: Request, res: Response) => {
       id: m.id,
       name: m.name,
       times: m.times,
+      startDate: m.startDate,
+      endDate: m.endDate,
       takenLogs: m.takenLog.map(log => ({
         time: log.timestamp.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
         status: log.status
@@ -237,7 +260,7 @@ router.get('/schedule', async (req: Request, res: Response) => {
 
     const result = medications.map((med) => {
       const timesWithStatus = med.times.map((time) => {
-        // Check if there is a TakenLog for this med + this time + today
+        // Check if there is a TakenLog for this med + this time + selected date
         const log = med.takenLog.find((log) => {
           // Convert UTC time to local time for comparison
           const logTime = log.timestamp.toLocaleTimeString('en-US', { 
@@ -275,8 +298,11 @@ router.get('/schedule', async (req: Request, res: Response) => {
       };
     });
 
-    console.log('Sending response:', result);
-    res.json(result);
+    // Add isToday flag to help frontend determine if actions should be enabled
+    const isToday = new Date().toDateString() === selectedDate.toDateString();
+
+    console.log('Sending response:', { result, isToday });
+    res.json({ medications: result, isToday });
   } catch (err) {
     console.error('Error in schedule:', err);
     res.status(500).json({ error: 'Internal server error' });
